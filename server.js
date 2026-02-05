@@ -128,7 +128,7 @@ function detectLanguage(text) {
 // Chat endpoint
 app.post('/chat', async (req, res) => {
   try {
-    console.log('Chat request received');
+    console.log('Chat request received:', req.body);
     
     const { message, conversationHistory = [] } = req.body;
     
@@ -158,9 +158,9 @@ app.post('/chat', async (req, res) => {
       }
     ];
 
-    console.log('Sending request to Anthropic...');
+    console.log('Sending request to Anthropic with messages:', messages.length);
     
-    // Call Claude
+    // Call Claude with updated model
     const response = await client.messages.create({
       model: 'claude-3-5-sonnet-20241022',
       max_tokens: 1000,
@@ -170,7 +170,7 @@ app.post('/chat', async (req, res) => {
     });
 
     const reply = response.content[0].text;
-    console.log('Received response from Anthropic');
+    console.log('Received response from Anthropic, length:', reply.length);
     
     res.json({
       reply,
@@ -180,7 +180,12 @@ app.post('/chat', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Chat error:', error);
+    console.error('Chat error details:', {
+      message: error.message,
+      status: error.status,
+      type: error.type,
+      stack: error.stack
+    });
     
     // Enhanced error handling
     if (error.message?.includes('ANTHROPIC_API_KEY')) {
@@ -205,9 +210,17 @@ app.post('/chat', async (req, res) => {
       });
     }
     
+    if (error.status === 400) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Invalid request format. Please try again.',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+    
     res.status(500).json({
       error: 'Internal Server Error',
-      message: 'Something went wrong. Please try again.',
+      message: 'Ray-I is temporarily unavailable. Please try again in a moment.',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined,
       timestamp: new Date().toISOString()
     });
