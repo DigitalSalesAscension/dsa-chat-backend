@@ -1,0 +1,26 @@
+{
+  "name": "dsa-chat-backend",
+  "version": "1.0.0",
+  "description": "DSA Ray-I Chat Backend with Claude integration",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "build": "echo 'No build needed'",
+    "test": "echo 'Tests not implemented yet'"
+  },
+  "dependencies": {
+    "express": "^4.18.3",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.1.5",
+    "dotenv": "^16.4.1",
+    "@anthropic-ai/sdk": "^0.21.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["dsa", "chat", "ai", "claude", "sales"],
+  "author": "Digital Sales Ascension",
+  "license": "MIT"
+}
