@@ -3,15 +3,16 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
-const Anthropic = require('@anthropic-ai/sdk');
-// Using built-in fetch (Node.js 18+)
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Initialize Anthropic client
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+// Debug logging
+console.log('Starting server...');
+console.log('Environment check:', {
+  NODE_ENV: process.env.NODE_ENV,
+  hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
+  port: PORT
 });
 
 // Security middleware
@@ -25,12 +26,46 @@ app.use(cors({
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 30, // limit each IP to 30 requests per windowMs
+  max: 30,
   message: { error: 'Too many requests, please try again later.' }
 });
 
 app.use(limiter);
 app.use(express.json({ limit: '10mb' }));
+
+// Health check endpoint
+app.get('/', (req, res) => {
+  console.log('Health check requested');
+  res.json({ 
+    status: 'ok', 
+    message: 'DSA Ray-I Backend is running',
+    timestamp: new Date().toISOString(),
+    hasApiKey: !!process.env.ANTHROPIC_API_KEY
+  });
+});
+
+// Initialize Anthropic client only when needed
+let anthropic = null;
+
+function getAnthropicClient() {
+  if (!anthropic) {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new Error('ANTHROPIC_API_KEY environment variable is not set');
+    }
+    
+    try {
+      const Anthropic = require('@anthropic-ai/sdk');
+      anthropic = new Anthropic({
+        apiKey: process.env.ANTHROPIC_API_KEY,
+      });
+      console.log('Anthropic client initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize Anthropic client:', error);
+      throw error;
+    }
+  }
+  return anthropic;
+}
 
 // Ray-I DSA Coach personality
 const RAY_I_SYSTEM_PROMPT = `You are Ray-I, the premium AI sales coach for Digital Sales Ascension (DSA), created by Rebien Ghazali.
@@ -47,239 +82,163 @@ Help DSA students master high-ticket closing, overcome course obstacles, and ach
 
 KNOWLEDGE AREAS:
 - The entire DSA course structure and curriculum
-- High-ticket sales techniques and psychology  
-- Customer psychology and pain point identification
-- Closing techniques and objection handling
-- Sales mindset and confidence building
-- Course-specific exercises and modules
+- High-ticket sales techniques and psychology
+- Objection handling frameworks
+- Closing strategies for high-ticket offers
+- Student motivation and mindset coaching
+- Practical implementation guidance
 
-COMMUNICATION STYLE:
-- **Language Adaptability**: Respond in the user's language (English/Dutch)
-- **Direct & Energetic**: Match Rebien's direct, no-nonsense coaching style
-- **Practical Focus**: Give actionable advice and specific steps
-- **Encouraging**: Build confidence while being honest about challenges
-- **Psychology-Driven**: Explain the "why" behind techniques
+RESPONSE STYLE:
+- Direct and actionable - no fluff or corporate speak
+- Use bullet points and clear structure
+- Include specific examples and tactics
+- Match the user's energy level
+- Provide immediate next steps
+- Reference DSA methods and frameworks
 
-RESPONSE FRAMEWORK:
-1. Acknowledge the question/challenge
-2. Provide specific, actionable guidance
-3. Explain the psychology when relevant
-4. Give next steps or practice exercises
-5. Encourage application and practice
+DUTCH SUPPORT:
+- Detect Dutch language automatically
+- Respond naturally in Dutch when user speaks Dutch
+- Use appropriate Dutch sales terminology
+- Maintain same coaching energy in both languages
 
-When students ask about:
-- **Course content**: Guide them to specific modules and exercises
-- **Sales techniques**: Provide frameworks and psychological insights
-- **Mindset blocks**: Help identify and overcome limiting beliefs
-- **Practice scenarios**: Create realistic role-play situations
-- **Results**: Analyze what's working and what needs improvement
+COACHING APPROACH:
+1. Listen for the real challenge behind the question
+2. Provide specific, actionable solutions
+3. Reference relevant course materials
+4. Give practical homework/next steps
+5. Maintain high energy and confidence
+6. Push for implementation, not just understanding
 
-Always embody the premium, high-value positioning of DSA's €4,000+ programs.`;
+Remember: You're not just answering questions - you're coaching champions. Every interaction should move them closer to their first €10K month.
 
-// n8n webhook URL
-const N8N_WEBHOOK_URL = 'https://digitalsalesascension.app.n8n.cloud/webhook/98cc7639-8db0-4008-986b-77efc74ce2d4/chat';
+Signature style: End responses with ⚡ when providing high-energy motivation or breakthrough insights.`;
 
-// Helper function to detect language
+// Enhanced language detection
 function detectLanguage(text) {
-  const dutchWords = ['de', 'het', 'en', 'van', 'op', 'voor', 'met', 'een', 'is', 'zijn', 'dat', 'niet', 'ik', 'je', 'hij', 'zij', 'wij', 'hebben', 'kan', 'moet', 'wordt', 'dsa', 'cursus', 'verkoop'];
-  const words = text.toLowerCase().split(/\\s+/).filter(word => word.length > 2);
+  const dutchWords = ['het', 'van', 'een', 'de', 'en', 'is', 'dat', 'ik', 'niet', 'hij', 'zijn', 'op', 'aan', 'met', 'als', 'voor', 'had', 'er', 'maar', 'om', 'hem', 'dan', 'zou', 'of', 'wat', 'mijn', 'men', 'dit', 'zo', 'door', 'over', 'ze', 'zich', 'bij', 'ook', 'tot', 'je', 'mij', 'uit', 'der', 'daar', 'haar', 'naar', 'heb', 'hoe', 'heeft', 'kunnen', 'ons', 'worden', 'nu', 'zal', 'me', 'nog', 'tegen', 'na', 'reeds', 'wil', 'kon', 'niets', 'uw', 'iemand', 'geweest', 'andere'];
+  const words = text.toLowerCase().split(/\\s+/);
   const dutchCount = words.filter(word => dutchWords.includes(word)).length;
-  return words.length > 3 && (dutchCount / words.length) > 0.25 ? 'nl' : 'en';
+  const dutchRatio = dutchCount / words.length;
+  
+  console.log(`Language detection - Dutch words: ${dutchCount}/${words.length} (${(dutchRatio * 100).toFixed(1)}%)`);
+  return dutchRatio > 0.15 ? 'dutch' : 'english';
 }
 
-// Helper function to call Claude
-async function callClaude(message, language = 'en') {
+// Chat endpoint
+app.post('/chat', async (req, res) => {
   try {
-    const languageInstruction = language === 'nl' 
-      ? '\\n\\nRespond in Dutch (Nederlands). Use natural Dutch conversation style.'
-      : '\\n\\nRespond in English.';
-
-    const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 1500,
-      system: RAY_I_SYSTEM_PROMPT + languageInstruction,
-      messages: [
-        {
-          role: 'user',
-          content: message
-        }
-      ]
-    });
-
-    return {
-      success: true,
-      response: response.content[0].text,
-      source: 'claude'
-    };
-  } catch (error) {
-    console.error('Claude API error:', error);
-    return {
-      success: false,
-      error: error.message,
-      source: 'claude'
-    };
-  }
-}
-
-// Helper function to call n8n webhook as fallback
-async function callN8nWebhook(data) {
-  try {
-    const response = await fetch(N8N_WEBHOOK_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'DSA-Chat-Backend/1.0'
-      },
-      body: JSON.stringify(data)
-    });
-
-    if (!response.ok) {
-      throw new Error(`n8n webhook error: ${response.status} ${response.statusText}`);
-    }
-
-    const result = await response.json();
-    return {
-      success: true,
-      response: result.response || result.message || result.output || 'Response received from n8n',
-      source: 'n8n'
-    };
-  } catch (error) {
-    console.error('n8n webhook error:', error);
-    return {
-      success: false,
-      error: error.message,
-      source: 'n8n'
-    };
-  }
-}
-
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'healthy', 
-    timestamp: new Date().toISOString(),
-    service: 'DSA Ray-I Chat Backend',
-    version: '1.0.0'
-  });
-});
-
-// Status endpoint
-app.get('/api/status', (req, res) => {
-  res.json({
-    service: 'DSA Ray-I Chat Backend',
-    version: '1.0.0',
-    uptime: process.uptime(),
-    environment: process.env.NODE_ENV || 'development',
-    claude_available: !!process.env.ANTHROPIC_API_KEY,
-    n8n_available: true,
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Main chat endpoint
-app.post('/api/chat', async (req, res) => {
-  try {
-    const { message, sessionId, language: providedLanguage } = req.body;
-
-    if (!message || typeof message !== 'string') {
-      return res.status(400).json({ 
-        error: 'Message is required and must be a string' 
-      });
-    }
-
-    // Detect language if not provided
-    const detectedLanguage = providedLanguage || detectLanguage(message);
+    console.log('Chat request received');
     
-    // Log the request (but not the full message for privacy)
-    console.log(`[${new Date().toISOString()}] Chat request - Session: ${sessionId}, Language: ${detectedLanguage}, Length: ${message.length}`);
+    const { message, conversationHistory = [] } = req.body;
+    
+    if (!message?.trim()) {
+      return res.status(400).json({ 
+        error: 'Message is required',
+        details: 'Please provide a message to chat with Ray-I'
+      });
+    }
 
-    let result = null;
-
-    // Try Claude first (if API key is available)
-    if (process.env.ANTHROPIC_API_KEY) {
-      result = await callClaude(message, detectedLanguage);
-      
-      if (!result.success) {
-        console.warn('Claude failed, falling back to n8n:', result.error);
+    // Get Anthropic client (this will throw if API key is missing)
+    const client = getAnthropicClient();
+    
+    // Detect language
+    const language = detectLanguage(message);
+    console.log(`Detected language: ${language}`);
+    
+    // Build conversation context
+    const messages = [
+      ...conversationHistory.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      })),
+      {
+        role: 'user',
+        content: message
       }
-    }
+    ];
 
-    // Fallback to n8n if Claude failed or unavailable
-    if (!result || !result.success) {
-      result = await callN8nWebhook({
-        message,
-        sessionId,
-        language: detectedLanguage,
-        timestamp: new Date().toISOString()
-      });
-    }
+    console.log('Sending request to Anthropic...');
+    
+    // Call Claude
+    const response = await client.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 1000,
+      temperature: 0.7,
+      system: RAY_I_SYSTEM_PROMPT,
+      messages: messages
+    });
 
-    // If both failed, return error
-    if (!result.success) {
-      console.error('Both Claude and n8n failed');
-      return res.status(500).json({
-        error: 'Sorry, I\\'m having trouble connecting right now. Please try again in a moment.',
-        details: 'Both primary and fallback systems are unavailable'
-      });
-    }
-
-    // Return successful response
+    const reply = response.content[0].text;
+    console.log('Received response from Anthropic');
+    
     res.json({
-      response: result.response,
-      source: result.source,
-      language: detectedLanguage,
-      sessionId,
-      timestamp: new Date().toISOString()
+      reply,
+      language,
+      timestamp: new Date().toISOString(),
+      tokens: response.usage?.output_tokens || 0
     });
 
   } catch (error) {
-    console.error('Chat endpoint error:', error);
+    console.error('Chat error:', error);
+    
+    // Enhanced error handling
+    if (error.message?.includes('ANTHROPIC_API_KEY')) {
+      return res.status(500).json({
+        error: 'Configuration Error',
+        message: 'API key not configured properly. Please contact support.',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+    
+    if (error.status === 401) {
+      return res.status(500).json({
+        error: 'Authentication Error',
+        message: 'Invalid API key. Please contact support.',
+      });
+    }
+    
+    if (error.status === 429) {
+      return res.status(429).json({
+        error: 'Rate Limit',
+        message: 'Too many requests. Please try again in a moment.',
+      });
+    }
+    
     res.status(500).json({
-      error: 'Internal server error. Please try again.',
+      error: 'Internal Server Error',
+      message: 'Something went wrong. Please try again.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
       timestamp: new Date().toISOString()
     });
   }
-});
-
-// Root endpoint
-app.get('/', (req, res) => {
-  res.json({
-    service: 'DSA Ray-I Chat Backend',
-    message: 'Digital Sales Ascension Chat API is running',
-    version: '1.0.0',
-    endpoints: {
-      chat: 'POST /api/chat',
-      health: 'GET /api/health', 
-      status: 'GET /api/status'
-    },
-    documentation: 'https://github.com/your-username/dsa-chat-backend'
-  });
 });
 
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({
-    error: 'Internal server error',
+    error: 'Unexpected Error',
+    message: 'An unexpected error occurred',
     timestamp: new Date().toISOString()
   });
 });
 
 // 404 handler
-app.use('*', (req, res) => {
+app.use((req, res) => {
   res.status(404).json({
-    error: 'Endpoint not found',
-    message: 'The requested endpoint does not exist',
-    available_endpoints: ['/api/chat', '/api/health', '/api/status']
+    error: 'Not Found',
+    message: 'Endpoint not found',
+    availableEndpoints: ['GET /', 'POST /chat']
   });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 DSA Ray-I Chat Backend running on port ${PORT}`);
-  console.log(`⚡ Claude integration: ${process.env.ANTHROPIC_API_KEY ? '✅ Available' : '❌ No API key'}`);
-  console.log(`🔗 n8n fallback: ✅ Available`);
-  console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
-});
-
+// For Vercel
 module.exports = app;
+
+// For local development
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`DSA Ray-I Backend running on port ${PORT}`);
+  });
+}
