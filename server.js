@@ -124,7 +124,7 @@ app.post('/debug', async (req, res) => {
     
     console.log('Making API call...');
     const response = await client.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: 'claude-3-5-sonnet-latest',
       max_tokens: 50,
       messages: [{ role: 'user', content: 'Say hello briefly' }]
     });
@@ -189,7 +189,7 @@ app.post('/chat', async (req, res) => {
     
     // Call Anthropic API
     const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: 'claude-3-5-sonnet-latest',
       max_tokens: 1000,
       temperature: 0.7,
       system: SYSTEM_PROMPT,
