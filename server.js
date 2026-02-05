@@ -7,25 +7,24 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Debug logging
-console.log('Starting server...');
-console.log('Environment check:', {
+console.log('🚀 DSA Ray-I Backend Starting...');
+console.log('Environment:', {
   NODE_ENV: process.env.NODE_ENV,
-  hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
-  port: PORT
+  hasKey: !!process.env.ANTHROPIC_API_KEY,
+  keyLength: process.env.ANTHROPIC_API_KEY?.length
 });
 
 // Security middleware
 app.use(helmet());
 app.use(cors({
-  origin: ['https://dsa-premium-chat.vercel.app', 'https://dsa-premium-chat.netlify.app', 'http://localhost:3000', 'https://*.netlify.app', 'https://*.vercel.app'],
-  methods: ['GET', 'POST'],
+  origin: ['https://rayi-modern.netlify.app', 'https://dsa-premium-chat.vercel.app', 'https://dsa-premium-chat.netlify.app', 'http://localhost:3000', 'https://*.netlify.app', 'https://*.vercel.app'],
+  methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
+  windowMs: 1 * 60 * 1000,
   max: 30,
   message: { error: 'Too many requests, please try again later.' }
 });
@@ -33,9 +32,8 @@ const limiter = rateLimit({
 app.use(limiter);
 app.use(express.json({ limit: '10mb' }));
 
-// Health check endpoint
+// Health check
 app.get('/', (req, res) => {
-  console.log('Health check requested');
   res.json({ 
     status: 'ok', 
     message: 'DSA Ray-I Backend is running',
@@ -44,111 +42,94 @@ app.get('/', (req, res) => {
   });
 });
 
-// Initialize Anthropic client only when needed
+// Initialize Anthropic client
 let anthropic = null;
 
-function getAnthropicClient() {
-  if (!anthropic) {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      throw new Error('ANTHROPIC_API_KEY environment variable is not set');
-    }
-    
+function initializeAnthropic() {
+  if (!anthropic && process.env.ANTHROPIC_API_KEY) {
     try {
       const Anthropic = require('@anthropic-ai/sdk');
       anthropic = new Anthropic({
         apiKey: process.env.ANTHROPIC_API_KEY,
       });
-      console.log('Anthropic client initialized successfully');
+      console.log('✅ Anthropic client initialized');
+      return true;
     } catch (error) {
-      console.error('Failed to initialize Anthropic client:', error);
-      throw error;
+      console.error('❌ Anthropic initialization failed:', error);
+      return false;
     }
   }
-  return anthropic;
+  return !!anthropic;
 }
 
-// Ray-I DSA Coach personality
-const RAY_I_SYSTEM_PROMPT = `You are Ray-I, the premium AI sales coach for Digital Sales Ascension (DSA), created by Rebien Ghazali.
+// Simple language detection
+function detectLanguage(text) {
+  const dutchWords = ['het', 'van', 'een', 'de', 'en', 'is', 'dat', 'ik', 'niet', 'hij', 'zijn', 'op', 'aan', 'met', 'voor', 'maar', 'om', 'dan', 'zou', 'of', 'wat', 'mijn', 'dit', 'zo', 'door', 'over', 'ze', 'zich', 'bij', 'ook', 'tot', 'je', 'mij', 'uit', 'daar', 'naar', 'heb', 'hoe', 'heeft', 'kunnen', 'worden', 'nu', 'zal', 'me', 'nog', 'tegen', 'na', 'wil', 'kon', 'niets'];
+  const words = text.toLowerCase().split(/\s+/);
+  const dutchCount = words.filter(word => dutchWords.includes(word)).length;
+  return dutchCount / words.length > 0.15 ? 'dutch' : 'english';
+}
+
+// Ray-I system prompt
+const SYSTEM_PROMPT = `You are Ray-I, the premium AI sales coach for Digital Sales Ascension (DSA), created by Rebien Ghazali.
 
 IDENTITY:
-- Name: Ray-I (pronounced "Ray")
+- Name: Ray-I (pronounced "Ray")  
 - Role: Premium DSA sales coach and course assistant
-- Expertise: High-ticket sales, customer psychology, course guidance
-- Style: Direct, energetic, matches Rebien's no-fluff approach
-- Emoji: ⚡ (lightning bolt - represents speed and power)
+- Style: Direct, energetic, no-fluff approach like Rebien
+- Emoji signature: ⚡
 
-CORE MISSION:
-Help DSA students master high-ticket closing, overcome course obstacles, and achieve breakthrough results through expert coaching.
+MISSION:
+Help DSA students master high-ticket closing and achieve breakthrough results.
 
-KNOWLEDGE AREAS:
-- The entire DSA course structure and curriculum
-- High-ticket sales techniques and psychology
+EXPERTISE:
+- High-ticket sales psychology and techniques
+- DSA course curriculum guidance  
 - Objection handling frameworks
-- Closing strategies for high-ticket offers
+- Closing strategies for €4K+ offers
 - Student motivation and mindset coaching
-- Practical implementation guidance
 
-RESPONSE STYLE:
-- Direct and actionable - no fluff or corporate speak
-- Use bullet points and clear structure
-- Include specific examples and tactics
+STYLE:
+- Direct and actionable - no corporate fluff
+- Use bullet points for clarity
+- Provide specific examples and next steps  
 - Match the user's energy level
-- Provide immediate next steps
-- Reference DSA methods and frameworks
+- Push for implementation over theory
 
 DUTCH SUPPORT:
-- Detect Dutch language automatically
-- Respond naturally in Dutch when user speaks Dutch
-- Use appropriate Dutch sales terminology
-- Maintain same coaching energy in both languages
+Automatically detect Dutch and respond naturally in Dutch when appropriate.
 
-COACHING APPROACH:
-1. Listen for the real challenge behind the question
-2. Provide specific, actionable solutions
-3. Reference relevant course materials
-4. Give practical homework/next steps
-5. Maintain high energy and confidence
-6. Push for implementation, not just understanding
+Remember: You're coaching champions toward their first €10K month. Every response should move them forward.
 
-Remember: You're not just answering questions - you're coaching champions. Every interaction should move them closer to their first €10K month.
-
-Signature style: End responses with ⚡ when providing high-energy motivation or breakthrough insights.`;
-
-// Enhanced language detection
-function detectLanguage(text) {
-  const dutchWords = ['het', 'van', 'een', 'de', 'en', 'is', 'dat', 'ik', 'niet', 'hij', 'zijn', 'op', 'aan', 'met', 'als', 'voor', 'had', 'er', 'maar', 'om', 'hem', 'dan', 'zou', 'of', 'wat', 'mijn', 'men', 'dit', 'zo', 'door', 'over', 'ze', 'zich', 'bij', 'ook', 'tot', 'je', 'mij', 'uit', 'der', 'daar', 'haar', 'naar', 'heb', 'hoe', 'heeft', 'kunnen', 'ons', 'worden', 'nu', 'zal', 'me', 'nog', 'tegen', 'na', 'reeds', 'wil', 'kon', 'niets', 'uw', 'iemand', 'geweest', 'andere'];
-  const words = text.toLowerCase().split(/\\s+/);
-  const dutchCount = words.filter(word => dutchWords.includes(word)).length;
-  const dutchRatio = dutchCount / words.length;
-  
-  console.log(`Language detection - Dutch words: ${dutchCount}/${words.length} (${(dutchRatio * 100).toFixed(1)}%)`);
-  return dutchRatio > 0.15 ? 'dutch' : 'english';
-}
+End motivational responses with ⚡`;
 
 // Chat endpoint
 app.post('/chat', async (req, res) => {
   try {
-    console.log('Chat request received:', req.body);
+    console.log('📨 Chat request received');
     
     const { message, conversationHistory = [] } = req.body;
     
     if (!message?.trim()) {
       return res.status(400).json({ 
-        error: 'Message is required',
-        details: 'Please provide a message to chat with Ray-I'
+        error: 'Message required',
+        message: 'Please provide a message to chat with Ray-I'
       });
     }
 
-    // Get Anthropic client (this will throw if API key is missing)
-    const client = getAnthropicClient();
-    
-    // Detect language
+    // Initialize Anthropic
+    if (!initializeAnthropic()) {
+      return res.status(500).json({
+        error: 'Service Unavailable',
+        message: 'Ray-I is temporarily offline. Please try again later.'
+      });
+    }
+
     const language = detectLanguage(message);
-    console.log(`Detected language: ${language}`);
     
-    // Build conversation context
+    // Build messages array
     const messages = [
-      ...conversationHistory.map(msg => ({
+      ...conversationHistory.slice(-6).map(msg => ({
         role: msg.role,
         content: msg.content
       })),
@@ -158,19 +139,19 @@ app.post('/chat', async (req, res) => {
       }
     ];
 
-    console.log('Sending request to Anthropic with messages:', messages.length);
+    console.log(`🧠 Processing ${language} message with ${messages.length} context messages`);
     
-    // Call Claude with updated model
-    const response = await client.messages.create({
+    // Call Anthropic API
+    const response = await anthropic.messages.create({
       model: 'claude-3-5-sonnet-20241022',
       max_tokens: 1000,
       temperature: 0.7,
-      system: RAY_I_SYSTEM_PROMPT,
+      system: SYSTEM_PROMPT,
       messages: messages
     });
 
     const reply = response.content[0].text;
-    console.log('Received response from Anthropic, length:', reply.length);
+    console.log(`✅ Generated ${reply.length} char response`);
     
     res.json({
       reply,
@@ -180,78 +161,61 @@ app.post('/chat', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Chat error details:', {
-      message: error.message,
-      status: error.status,
-      type: error.type,
-      stack: error.stack
-    });
+    console.error('💥 Chat error:', error);
     
-    // Enhanced error handling
-    if (error.message?.includes('ANTHROPIC_API_KEY')) {
-      return res.status(500).json({
-        error: 'Configuration Error',
-        message: 'API key not configured properly. Please contact support.',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
-    }
-    
+    // Specific error handling
     if (error.status === 401) {
       return res.status(500).json({
         error: 'Authentication Error',
-        message: 'Invalid API key. Please contact support.',
+        message: 'Ray-I authentication failed. Please contact support.'
       });
     }
     
     if (error.status === 429) {
       return res.status(429).json({
         error: 'Rate Limit',
-        message: 'Too many requests. Please try again in a moment.',
+        message: 'Too many requests. Please wait a moment and try again.'
       });
     }
-    
+
     if (error.status === 400) {
       return res.status(400).json({
-        error: 'Bad Request',
-        message: 'Invalid request format. Please try again.',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        error: 'Request Error',
+        message: 'Invalid message format. Please try rephrasing your question.'
       });
     }
     
     res.status(500).json({
-      error: 'Internal Server Error',
-      message: 'Ray-I is temporarily unavailable. Please try again in a moment.',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      error: 'Service Error', 
+      message: 'Ray-I is experiencing technical difficulties. Please try again in a moment.',
       timestamp: new Date().toISOString()
     });
   }
 });
 
-// Error handling middleware
+// Error handlers
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({
     error: 'Unexpected Error',
-    message: 'An unexpected error occurred',
-    timestamp: new Date().toISOString()
+    message: 'Something unexpected happened'
   });
 });
 
-// 404 handler
 app.use((req, res) => {
   res.status(404).json({
     error: 'Not Found',
     message: 'Endpoint not found',
-    availableEndpoints: ['GET /', 'POST /chat']
+    available: ['GET /', 'POST /chat']
   });
 });
 
-// For Vercel
+// Export for Vercel
 module.exports = app;
 
-// For local development
+// Local development
 if (require.main === module) {
   app.listen(PORT, () => {
-    console.log(`DSA Ray-I Backend running on port ${PORT}`);
+    console.log(`🎯 DSA Ray-I Backend running on port ${PORT}`);
   });
 }
