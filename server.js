@@ -103,6 +103,52 @@ Remember: You're coaching champions toward their first €10K month. Every respo
 
 End motivational responses with ⚡`;
 
+// Debug endpoint
+app.post('/debug', async (req, res) => {
+  try {
+    console.log('🔍 Debug test starting...');
+    
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return res.json({ error: 'No API key found' });
+    }
+    
+    console.log('API Key length:', apiKey.length);
+    console.log('API Key starts with:', apiKey.substring(0, 15) + '...');
+    
+    const Anthropic = require('@anthropic-ai/sdk');
+    console.log('SDK imported successfully');
+    
+    const client = new Anthropic({ apiKey });
+    console.log('Client created successfully');
+    
+    console.log('Making API call...');
+    const response = await client.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 50,
+      messages: [{ role: 'user', content: 'Say hello briefly' }]
+    });
+    
+    console.log('API call successful!');
+    
+    res.json({
+      success: true,
+      response: response.content[0].text,
+      usage: response.usage
+    });
+    
+  } catch (error) {
+    console.error('Debug error:', error);
+    res.json({
+      success: false,
+      errorMessage: error.message,
+      errorType: error.type,
+      errorStatus: error.status,
+      errorCode: error.code
+    });
+  }
+});
+
 // Chat endpoint
 app.post('/chat', async (req, res) => {
   try {
